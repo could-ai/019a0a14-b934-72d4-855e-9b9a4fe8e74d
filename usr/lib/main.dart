@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -7,114 +9,309 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Air Combat Game',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const GameScreen(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class GameScreen extends StatefulWidget {
+  const GameScreen({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<GameScreen> createState() => _GameScreenState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _GameScreenState extends State<GameScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  Player _player = Player(position: const Offset(200, 700));
+  List<Enemy> _enemies = [];
+  List<Bullet> _bullets = [];
+  int _score = 0;
+  bool _isGameOver = false;
+  final Random _random = Random();
+  Timer? _enemySpawnTimer;
+  Timer? _bulletSpawnTimer;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..addListener(_gameLoop);
+    startGame();
+  }
+
+  void startGame() {
+    _player = Player(position: Offset(MediaQuery.of(context).size.width / 2, MediaQuery.of(context).size.height - 100));
+    _enemies.clear();
+    _bullets.clear();
+    _score = 0;
+    _isGameOver = false;
+
+    _controller.repeat();
+
+    _enemySpawnTimer?.cancel();
+    _enemySpawnTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _spawnEnemy();
     });
+
+    _bulletSpawnTimer?.cancel();
+    _bulletSpawnTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
+      _spawnBullet();
+    });
+  }
+
+  void _spawnEnemy() {
+    if (!_isGameOver) {
+      final screenWidth = MediaQuery.of(context).size.width;
+      _enemies.add(Enemy(
+          position: Offset(_random.nextDouble() * screenWidth, -50),
+          size: const Size(50, 50)));
+    }
+  }
+
+  void _spawnBullet() {
+    if (!_isGameOver) {
+      _bullets.add(Bullet(
+          position: _player.position + const Offset(24, 0),
+          size: const Size(5, 20)));
+    }
+  }
+
+  void _gameLoop() {
+    if (_isGameOver) {
+      _controller.stop();
+      _enemySpawnTimer?.cancel();
+      _bulletSpawnTimer?.cancel();
+      return;
+    }
+
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // Move bullets
+    _bullets.removeWhere((bullet) => bullet.position.dy < 0);
+    for (var bullet in _bullets) {
+      bullet.move();
+    }
+
+    // Move enemies
+    _enemies.removeWhere((enemy) => enemy.position.dy > screenHeight);
+    for (var enemy in _enemies) {
+      enemy.move();
+    }
+
+    // Check for collisions
+    _checkCollisions();
+
+    setState(() {});
+  }
+
+  void _checkCollisions() {
+    final List<Bullet> bulletsToRemove = [];
+    final List<Enemy> enemiesToRemove = [];
+
+    for (final bullet in _bullets) {
+      for (final enemy in _enemies) {
+        if (bullet.toRect().overlaps(enemy.toRect())) {
+          bulletsToRemove.add(bullet);
+          enemiesToRemove.add(enemy);
+          _score++;
+        }
+      }
+    }
+
+    for (final enemy in _enemies) {
+      if (enemy.toRect().overlaps(_player.toRect())) {
+        setState(() {
+          _isGameOver = true;
+        });
+      }
+    }
+
+    _bullets.removeWhere((b) => bulletsToRemove.contains(b));
+    _enemies.removeWhere((e) => enemiesToRemove.contains(e));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _enemySpawnTimer?.cancel();
+    _bulletSpawnTimer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text('$_counter', style: Theme.of(context).textTheme.headlineMedium),
+      body: GestureDetector(
+        onPanUpdate: (details) {
+          if (!_isGameOver) {
+            setState(() {
+              _player.move(details.delta, context);
+            });
+          }
+        },
+        child: Stack(
+          children: [
+            CustomPaint(
+              painter: GamePainter(
+                player: _player,
+                enemies: _enemies,
+                bullets: _bullets,
+                score: _score,
+              ),
+              child: Container(),
+            ),
+            if (_isGameOver)
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Game Over',
+                      style: TextStyle(
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
+                    ),
+                    Text(
+                      'Score: $_score',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: startGame,
+                      child: const Text('Restart'),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
+}
+
+class GamePainter extends CustomPainter {
+  final Player player;
+  final List<Enemy> enemies;
+  final List<Bullet> bullets;
+  final int score;
+
+  GamePainter({
+    required this.player,
+    required this.enemies,
+    required this.bullets,
+    required this.score,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Background
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
+        Paint()..color = Colors.black87);
+
+    // Player
+    player.draw(canvas);
+
+    // Enemies
+    for (final enemy in enemies) {
+      enemy.draw(canvas);
+    }
+
+    // Bullets
+    for (final bullet in bullets) {
+      bullet.draw(canvas);
+    }
+
+    // Score
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: 'Score: $score',
+        style: const TextStyle(color: Colors.white, fontSize: 24),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(canvas, const Offset(20, 20));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
+  }
+}
+
+class Player {
+  Offset position;
+  Size size;
+
+  Player({required this.position, this.size = const Size(50, 50)});
+
+  void move(Offset delta, BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final newX = (position.dx + delta.dx).clamp(0.0, screenWidth - size.width);
+    position = Offset(newX, position.dy);
+  }
+
+  void draw(Canvas canvas) {
+    final paint = Paint()..color = Colors.blue;
+    canvas.drawRect(toRect(), paint);
+  }
+
+  Rect toRect() => Rect.fromLTWH(position.dx, position.dy, size.width, size.height);
+}
+
+class Enemy {
+  Offset position;
+  Size size;
+  double speed;
+
+  Enemy({required this.position, required this.size, this.speed = 3.0});
+
+  void move() {
+    position = Offset(position.dx, position.dy + speed);
+  }
+
+  void draw(Canvas canvas) {
+    final paint = Paint()..color = Colors.red;
+    canvas.drawRect(toRect(), paint);
+  }
+
+  Rect toRect() => Rect.fromLTWH(position.dx, position.dy, size.width, size.height);
+}
+
+class Bullet {
+  Offset position;
+  Size size;
+  double speed;
+
+  Bullet({required this.position, required this.size, this.speed = 8.0});
+
+  void move() {
+    position = Offset(position.dx, position.dy - speed);
+  }
+
+  void draw(Canvas canvas) {
+    final paint = Paint()..color = Colors.yellow;
+    canvas.drawRect(toRect(), paint);
+  }
+
+  Rect toRect() => Rect.fromLTWH(position.dx, position.dy, size.width, size.height);
 }
